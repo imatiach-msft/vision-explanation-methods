@@ -20,6 +20,7 @@ import torch
 import torchvision.transforms as T
 import tqdm
 from torch import Tensor
+from ml_wrappers.model.image_model_wrapper import WrappedMlflowAutomlObjectDetectionModel
 
 from .common import (DetectionRecord, GeneralObjectDetectionModelWrapper,
                      compute_affinity_matrix)
@@ -351,6 +352,17 @@ def DRISE_saliency_for_mlflow(
     img_tens = convert_base64_to_tensor(
         image_tensor.loc[0, 'image'], device)
 
+    print("IM%% DRISE here")
+    print(model)
+    print(type(model))
+    is_automl_od_mlflow = isinstance(model._model, WrappedMlflowAutomlObjectDetectionModel)
+    print(is_automl_od_mlflow)
+    if is_automl_od_mlflow:
+        automl_wrapper = wrapped_model._model._model_impl.python_model._model
+        inner_model = automl_wrapper._model
+        number_of_classes = automl_wrapper._number_of_classes
+        wrapped_inner_model = WrappedObjectDetectionModel(inner_model, number_of_classes)
+
     for _ in mask_iterator:
         # Converts image base64 to a tensor
         # Fuses mask tensor with image tensor
@@ -359,15 +371,19 @@ def DRISE_saliency_for_mlflow(
 
         masked_image = fuse_mask(img_tens, mask)
 
-        masked_image_str, masked_image_size = convert_tensor_to_base64(
-            masked_image)
+        if is_automl_od_mlflow:
+            masked_detections = wrapped_inner_model.predict(mask)
+            print(masked_detections)
+        else:
+            masked_image_str, masked_image_size = convert_tensor_to_base64(
+                masked_image)
 
-        masked_df = pd.DataFrame(
-            data=[[masked_image_str, masked_image_size]],
-            columns=['image', "image_size"],
-        )
+            masked_df = pd.DataFrame(
+                data=[[masked_image_str, masked_image_size]],
+                columns=['image', "image_size"],
+            )
 
-        masked_detections = model.predict(masked_df)
+            masked_detections = model.predict(masked_df)
 
         affinity_scores = [
             compute_affinity_scores(target_detection, masked_detection)
